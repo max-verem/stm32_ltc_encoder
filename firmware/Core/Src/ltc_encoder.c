@@ -197,3 +197,9 @@ void ltc_decoder_init(I2S_HandleTypeDef* i2s)
   }
 #endif
 
+  // static const uint32_t tmp[4] = {0xF0F0F0F0, 0xF0F0F0F0, 0xF0F0F0F0, 0xF0F0F0F0};
+  // static const uint32_t tmp[4] = {0x0, 0x0, 0x0, 0x0};
+  // static const uint32_t tmp[4] = {0xFFFFFFFF, 0xFFFFFFFF, 0, 0};
+//  static const uint32_t tmp[] = {0xFFFFFFFF, 0, 0xFFFFFFFF, 0};
+//  static uint32_t raw_ltc[3] = {0x1050006, 0x9030005, SYNC_WORD};
+
