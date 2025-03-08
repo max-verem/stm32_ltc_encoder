@@ -59,17 +59,24 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define LED_Pin GPIO_PIN_13
 #define LED_GPIO_Port GPIOC
-#define LTC_OUT_Pin GPIO_PIN_12
+#define TP1_Pin GPIO_PIN_12
+#define TP1_GPIO_Port GPIOB
+#define TP2_Pin GPIO_PIN_13
+#define TP2_GPIO_Port GPIOB
+#define LTC_OUT_Pin GPIO_PIN_15
 #define LTC_OUT_GPIO_Port GPIOB
-#define SYNC_Pin GPIO_PIN_13
-#define SYNC_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
-#define TIMER1_PRESCALER_RAW 32
-#define TIMER1_PERIOD_RAW 1000
+#define TIMER1_PRESCALER_RAW 48
+#define TIMER1_PERIOD_RAW 250
 #define TIMER1_PRESCALER (TIMER1_PRESCALER_RAW - 1)
 #define TIMER1_PERIOD (TIMER1_PERIOD_RAW - 1)
+
+#define TIMER3_PRESCALER_RAW 48
+#define TIMER3_PERIOD_RAW 1000
+#define TIMER3_PRESCALER (TIMER3_PRESCALER_RAW - 1)
+#define TIMER3_PERIOD (TIMER3_PERIOD_RAW - 1)
 
 /* USER CODE END Private defines */
 

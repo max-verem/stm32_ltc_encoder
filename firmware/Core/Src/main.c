@@ -5,7 +5,6 @@
 #include "main.h"
 #include "dma.h"
 #include "i2c.h"
-#include "i2s.h"
 #include "tim.h"
 #include "usb_device.h"
 #include "gpio.h"
@@ -42,20 +41,29 @@
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
+uint32_t tc_bcd_normalize_test = 0;
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#define TIMER1_DIV(DIV) if(!(timer1_cnt % DIV))
-#define TIMER1_DIV_BLINK 50
-volatile int timer1_cnt = 0;
-static void timer1_cb(TIM_HandleTypeDef *htim)
+#define TIMER_A_DIV(DIV) if(!(timerA_cnt % DIV))
+#define TIMER_A_DIV_BLINK 50
+volatile int timerA_cnt = 0;
+static void timerA_cb(TIM_HandleTypeDef *htim)
 {
-	timer1_cnt++;
+	timerA_cnt++;
 
 	/* blink fast it timecode detected */
-	TIMER1_DIV(TIMER1_DIV_BLINK)
+	TIMER_A_DIV(TIMER_A_DIV_BLINK)
 		HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+
+#if 0
+	HAL_GPIO_WritePin(SYNC_GPIO_Port, SYNC_Pin, GPIO_PIN_SET);
+	tc_bcd_normalize_test++;
+	tc_bcd_normalize(&tc_bcd_normalize_test);
+	HAL_GPIO_WritePin(SYNC_GPIO_Port, SYNC_Pin, GPIO_PIN_RESET);
+#endif
 };
 /* USER CODE END 0 */
 
@@ -90,22 +98,25 @@ int main(void)
   MX_DMA_Init();
   MX_TIM1_Init();
   MX_USB_DEVICE_Init();
-  MX_I2S2_Init();
   MX_I2C1_Init();
   MX_TIM2_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
-  // start timer
-  HAL_TIM_RegisterCallback(&htim1, HAL_TIM_PERIOD_ELAPSED_CB_ID, timer1_cb);
-  HAL_TIM_Base_Start_IT(&htim1);
+  // start generic timer
+  HAL_TIM_RegisterCallback(&htim3, HAL_TIM_PERIOD_ELAPSED_CB_ID, timerA_cb);
+  HAL_TIM_Base_Start_IT(&htim3);
 
-  ltc_decoder_init(&hi2s2);
+  // ltc out init and run
+  ltc_decoder_init(&htim1, LTC_OUT_GPIO_Port, LTC_OUT_Pin);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	ltc_decoder_idle();
     cli_idle();
     /* USER CODE END WHILE */
 
@@ -137,7 +148,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 25;
   RCC_OscInitStruct.PLL.PLLN = 192;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV6;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
   RCC_OscInitStruct.PLL.PLLQ = 4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
