@@ -206,7 +206,7 @@ static void dma_cb_full(DMA_HandleTypeDef *hdma)
 	ltc_new_frame(1);
 };
 
-void ltc_decoder_idle()
+void ltc_encoder_idle()
 {
 /*
 	Release mode - 60uS
@@ -252,7 +252,7 @@ void ltc_decoder_idle()
 	};
 }
 
-void ltc_decoder_init(TIM_HandleTypeDef* tim, GPIO_TypeDef *gpio, uint32_t pin)
+void ltc_encoder_init(TIM_HandleTypeDef* tim, GPIO_TypeDef *gpio, uint32_t pin)
 {
 	HAL_DMA_RegisterCallback(tim->hdma[TIM_DMA_ID_UPDATE], HAL_DMA_XFER_CPLT_CB_ID, dma_cb_full);
 	HAL_DMA_RegisterCallback(tim->hdma[TIM_DMA_ID_UPDATE], HAL_DMA_XFER_HALFCPLT_CB_ID, dma_cb_half);

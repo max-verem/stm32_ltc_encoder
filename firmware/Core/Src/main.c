@@ -108,7 +108,7 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim3);
 
   // ltc out init and run
-  ltc_decoder_init(&htim1, LTC_OUT_GPIO_Port, LTC_OUT_Pin);
+  ltc_encoder_init(&htim1, LTC_OUT_GPIO_Port, LTC_OUT_Pin);
 
   /* USER CODE END 2 */
 
@@ -116,7 +116,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	ltc_decoder_idle();
+	ltc_encoder_idle();
     cli_idle();
     /* USER CODE END WHILE */
 
