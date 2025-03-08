@@ -13,6 +13,7 @@
 /* USER CODE BEGIN Includes */
 //#include <stdatomic.h>
 #include "ltc_encoder.h"
+#include "ltc_decoder.h"
 #include "cli.h"
 /* USER CODE END Includes */
 
@@ -47,24 +48,43 @@ uint32_t tc_bcd_normalize_test = 0;
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#define TC_DISPLAY_UNKNOWN 	0xAAAAAAAA
+#define TC_DISPLAY_NONE 	0xFFFFFFFF
+uint32_t tc_display = TC_DISPLAY_UNKNOWN, tc_displayed = TC_DISPLAY_NONE;
+
 #define TIMER_A_DIV(DIV) if(!(timerA_cnt % DIV))
-#define TIMER_A_DIV_BLINK 50
+#define TIMER_A_DIV_BLINK_FAST 50
+#define TIMER_A_DIV_BLINK_SLOW 500
 volatile int timerA_cnt = 0;
 static void timerA_cb(TIM_HandleTypeDef *htim)
 {
+	unsigned int now = HAL_GetTick();
+
 	timerA_cnt++;
 
 	/* blink fast it timecode detected */
-	TIMER_A_DIV(TIMER_A_DIV_BLINK)
-		HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+	/* check if we should solid led if no timecode detected */
+	if((ltc_last + 1000) < now)
+	{
+		// HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+		tc_display = TC_DISPLAY_UNKNOWN;
 
-#if 0
-	HAL_GPIO_WritePin(SYNC_GPIO_Port, SYNC_Pin, GPIO_PIN_SET);
-	tc_bcd_normalize_test++;
-	tc_bcd_normalize(&tc_bcd_normalize_test);
-	HAL_GPIO_WritePin(SYNC_GPIO_Port, SYNC_Pin, GPIO_PIN_RESET);
-#endif
+		TIMER_A_DIV(TIMER_A_DIV_BLINK_SLOW)
+			HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+	}
+	else
+	{
+		/* blink fast it timecode detected */
+		TIMER_A_DIV(TIMER_A_DIV_BLINK_FAST)
+			HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+	};
 };
+
+static void ltc_decoder_callback(uint32_t tc_bcd, uint8_t *tc_str_data, uint32_t tc_str_len)
+{
+	tc_display = tc_bcd;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -110,6 +130,9 @@ int main(void)
   // ltc out init and run
   ltc_encoder_init(&htim1, LTC_OUT_GPIO_Port, LTC_OUT_Pin);
 
+  // ltc in init and run
+  ltc_decoder_init(&htim2);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -117,6 +140,7 @@ int main(void)
   while (1)
   {
 	ltc_encoder_idle();
+	ltc_decoder_idle(ltc_decoder_callback);
     cli_idle();
     /* USER CODE END WHILE */
 
