@@ -6,7 +6,7 @@
 #include "dma.h"
 #include "i2c.h"
 #include "tim.h"
-#include "usb_device.h"
+#include "usb_otg.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -15,6 +15,11 @@
 #include "ltc_encoder.h"
 #include "ltc_decoder.h"
 #include "cli.h"
+#include "SSD1306.h"
+#include "font-14x30.h"
+
+#include "usb_device.h"
+#include "usbd_cdc_acm_if.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,6 +40,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+
+SSD1306_DEF(oled1, hi2c1, SSD1306_I2C_ADDR, 32, 0);
 
 /* USER CODE END PV */
 
@@ -78,11 +85,147 @@ static void timerA_cb(TIM_HandleTypeDef *htim)
 		TIMER_A_DIV(TIMER_A_DIV_BLINK_FAST)
 			HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 	};
+
+	SSD1306_refresh(&oled1);
 };
 
+extern USBD_HandleTypeDef hUsbDevice;
+
+static volatile int cdc_ready[2] = {0};
 static void ltc_decoder_callback(uint32_t tc_bcd, uint8_t *tc_str_data, uint32_t tc_str_len)
 {
 	tc_display = tc_bcd;
+	if(cdc_ready[1])
+		CDC_Transmit(1, tc_str_data, tc_str_len);
+}
+
+static uint32_t console_font_14x30_transposed[16 /* glyphs */][14 /* width */];
+
+static void console_font_14x30_transpose()
+{
+	int g;
+
+	for(g = 0; g < 12; g++)
+	{
+		int w, b, o;
+		const uint8_t *src_row = console_font_14x30 + 2 * 30 * g;
+
+		for(w = 0, o = 0, b = 0x80; w < 14; w++, b >>= 1)
+		{
+			int h;
+			uint32_t W = 0;
+
+			if(!b)
+			{
+				b = 0x80;
+				o = 1;
+			}
+
+			for(h = 0; h < 30; h++)
+				if(src_row[h * 2 + o] & b)
+					W |= 1 << h;
+
+			console_font_14x30_transposed[g][w] = W << 4;
+		}
+	};
+}
+
+volatile int semicolon_offset = 3;
+
+static void oled_idle()
+{
+	uint32_t bcd;
+	int i = 0, j, s;
+
+	if(tc_display == tc_displayed || oled1.dirty || oled1.busy)
+		return;
+
+#if 1
+    /* this is for estimating display rendering time */
+	HAL_GPIO_WritePin(TP2_GPIO_Port, TP2_Pin, GPIO_PIN_SET);
+#endif
+
+    bcd = tc_display;
+	tc_displayed = tc_display;
+
+	for(j = 0, s = 28; j < 8; j++, s -= 4)
+	{
+		int w, g;
+
+		// spacer
+		if(j && !(j & 1))
+		for(w = 0; w < 5; w++, i++)
+		{
+			uint32_t W = console_font_14x30_transposed[11 /* glyphs */][w + semicolon_offset /* width */];
+
+			oled1.fb[0][SSD1306_DATA_OFFSET + i] = W >>  0;
+			oled1.fb[1][SSD1306_DATA_OFFSET + i] = W >>  8;
+			oled1.fb[2][SSD1306_DATA_OFFSET + i] = W >> 16;
+			oled1.fb[3][SSD1306_DATA_OFFSET + i] = W >> 24;
+		}
+
+		// find glyph index
+		g = bcd >> s;
+		g &= 0x0F;
+		if(g > 10) g = 10;
+
+		// copy glyph bitmap data
+		for(w = 0; w < 14; w++, i++)
+		{
+		    uint32_t W = console_font_14x30_transposed[g /* glyphs */][w /* width */];
+
+			oled1.fb[0][SSD1306_DATA_OFFSET + i] = W >>  0;
+			oled1.fb[1][SSD1306_DATA_OFFSET + i] = W >>  8;
+			oled1.fb[2][SSD1306_DATA_OFFSET + i] = W >> 16;
+			oled1.fb[3][SSD1306_DATA_OFFSET + i] = W >> 24;
+		}
+	}
+
+	// mark page dirty
+	oled1.dirty = 0x0f;
+#if 1
+	/* this is for estimating display rendering time */
+	HAL_GPIO_WritePin(TP2_GPIO_Port, TP2_Pin, GPIO_PIN_RESET);
+#endif
+}
+
+extern USBD_HandleTypeDef hUsbDevice;
+extern USBD_CDC_ACM_ItfTypeDef USBD_CDC_ACM_fops;
+static USBD_CDC_ACM_ItfTypeDef _USBD_CDC_ACM_fops;
+static int8_t _CDC_Init(uint8_t cdc_ch)
+{
+	int8_t r;
+
+	r = _USBD_CDC_ACM_fops.Init(cdc_ch);
+
+	cdc_ready[cdc_ch]++;
+
+	return r;
+}
+
+static int8_t _CDC_Control(uint8_t cdc_ch, uint8_t cmd, uint8_t *pbuf, uint16_t length)
+{
+	int8_t r;
+
+	r = _USBD_CDC_ACM_fops.Control(cdc_ch, cmd, pbuf, length);
+
+	return r;
+}
+
+static int8_t _CDC_Receive(uint8_t cdc_ch, uint8_t *Buf, uint32_t *Len)
+{
+	if(!cdc_ch)
+		cli_callback_recv_data(Buf, *Len);
+	USBD_CDC_SetRxBuffer(cdc_ch, &hUsbDevice, &Buf[0]);
+	USBD_CDC_ReceivePacket(cdc_ch, &hUsbDevice);
+	return (USBD_OK);
+}
+
+static int8_t _CDC_TransmitCplt(uint8_t cdc_ch, uint8_t *Buf, uint32_t *Len, uint8_t epnum)
+{
+	if(!cdc_ch)
+		cli_callback_sent_data(Buf, *Len);
+	return (USBD_OK);
 }
 
 /* USER CODE END 0 */
@@ -103,7 +246,11 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  _USBD_CDC_ACM_fops = USBD_CDC_ACM_fops;
+  USBD_CDC_ACM_fops.Init = _CDC_Init;
+  USBD_CDC_ACM_fops.Control = _CDC_Control;
+  USBD_CDC_ACM_fops.TransmitCplt = _CDC_TransmitCplt;
+  USBD_CDC_ACM_fops.Receive = _CDC_Receive;
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -117,11 +264,13 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_TIM1_Init();
-  MX_USB_DEVICE_Init();
   MX_I2C1_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_USB_OTG_FS_PCD_Init();
   /* USER CODE BEGIN 2 */
+
+  MX_USB_DEVICE_Init();
 
   // start generic timer
   HAL_TIM_RegisterCallback(&htim3, HAL_TIM_PERIOD_ELAPSED_CB_ID, timerA_cb);
@@ -133,6 +282,10 @@ int main(void)
   // ltc in init and run
   ltc_decoder_init(&htim2);
 
+  // setup and init oled display
+  console_font_14x30_transpose();
+  SSD1306_setup(&oled1);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -142,6 +295,7 @@ int main(void)
 	ltc_encoder_idle();
 	ltc_decoder_idle(ltc_decoder_callback);
     cli_idle();
+    oled_idle();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
