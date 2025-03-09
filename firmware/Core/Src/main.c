@@ -16,7 +16,7 @@
 #include "ltc_decoder.h"
 #include "cli.h"
 #include "SSD1306.h"
-#include "font-14x30.h"
+#include "font-12x16.h"
 
 #include "usb_device.h"
 #include "usbd_cdc_acm_if.h"
@@ -57,7 +57,7 @@ uint32_t tc_bcd_normalize_test = 0;
 /* USER CODE BEGIN 0 */
 #define TC_DISPLAY_UNKNOWN 	0xAAAAAAAA
 #define TC_DISPLAY_NONE 	0xFFFFFFFF
-uint32_t tc_display = TC_DISPLAY_UNKNOWN, tc_displayed = TC_DISPLAY_NONE;
+uint32_t tc_in_display = TC_DISPLAY_UNKNOWN, tc_in_displayed = TC_DISPLAY_NONE, tc_out_displayed = TC_DISPLAY_NONE;
 
 #define TIMER_A_DIV(DIV) if(!(timerA_cnt % DIV))
 #define TIMER_A_DIV_BLINK_FAST 50
@@ -74,7 +74,7 @@ static void timerA_cb(TIM_HandleTypeDef *htim)
 	if((ltc_last + 1000) < now)
 	{
 		// HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-		tc_display = TC_DISPLAY_UNKNOWN;
+		tc_in_display = TC_DISPLAY_UNKNOWN;
 
 		TIMER_A_DIV(TIMER_A_DIV_BLINK_SLOW)
 			HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
@@ -94,74 +94,81 @@ extern USBD_HandleTypeDef hUsbDevice;
 static volatile int cdc_ready[2] = {0};
 static void ltc_decoder_callback(uint32_t tc_bcd, uint8_t *tc_str_data, uint32_t tc_str_len)
 {
-	tc_display = tc_bcd;
+	tc_in_display = tc_bcd;
 	if(cdc_ready[1])
 		CDC_Transmit(1, tc_str_data, tc_str_len);
 }
 
-static uint32_t console_font_14x30_transposed[16 /* glyphs */][14 /* width */];
+static uint32_t console_font_12x16_transposed[2 /* rows 8 pixels height */][16 /* glyphs */][3 /* 32-bits words width */];
 
-static void console_font_14x30_transpose()
+static void console_font_12x16_transpose()
 {
 	int g;
 
-	for(g = 0; g < 12; g++)
+	uint16_t G[16];
+
+	for(g = 0; g < 14; g++)
 	{
-		int w, b, o;
-		const uint8_t *src_row = console_font_14x30 + 2 * 30 * g;
+		int i, row, col;
+		const uint8_t *g_src;
 
-		for(w = 0, o = 0, b = 0x80; w < 14; w++, b >>= 1)
+		/* copy to src */
+		g_src = console_font_12x16 + g * 2 * 16;
+		for(i = 0; i < 16; i++)
 		{
-			int h;
-			uint32_t W = 0;
-
-			if(!b)
-			{
-				b = 0x80;
-				o = 1;
-			}
-
-			for(h = 0; h < 30; h++)
-				if(src_row[h * 2 + o] & b)
-					W |= 1 << h;
-
-			console_font_14x30_transposed[g][w] = W << 4;
+			uint16_t l = g_src[2 * i + 0];
+			uint16_t r = g_src[2 * i + 1];
+			G[i] = l << 8 | r;
 		}
-	};
-}
 
-volatile int semicolon_offset = 3;
+		/* transpose */
+		for(row = 0; row < 2; row++)
+		{
+			uint16_t m_src = 0x8000;
+			uint8_t *g_dst = (uint8_t *)console_font_12x16_transposed[row][g];
 
-static void oled_idle()
+			/* semicolon shift */
+			if(g == 11) m_src >>= 1;
+			/* arrow to right (for right corner) shift */
+			if(g == 12) m_src >>= 1;
+			/* arrow to right (for left corner) shift */
+			if(g == 13) m_src >>= 3;
+
+			for(col = 0; col < 12; col++, m_src >>= 1, g_dst++)
+			{
+				int h;
+				uint8_t m_dst = 1, c = 0;
+
+				for(h = 0; h < 8; h++, m_dst <<= 1)
+					c |= G[row * 8 + h] & m_src ? m_dst : 0;
+
+				*g_dst = c;
+			}
+		}
+	}
+
+};
+
+static void oled_redraw(uint32_t bcd, int top_offset)
 {
-	uint32_t bcd;
-	int i = 0, j, s;
+	int j, s;
 
-	if(tc_display == tc_displayed || oled1.dirty || oled1.busy)
-		return;
-
-#if 1
-    /* this is for estimating display rendering time */
-	HAL_GPIO_WritePin(TP2_GPIO_Port, TP2_Pin, GPIO_PIN_SET);
-#endif
-
-    bcd = tc_display;
-	tc_displayed = tc_display;
+	uint32_t
+		*top = (uint32_t*)&oled1.fb[0 + top_offset][SSD1306_DATA_OFFSET],
+		*bottom = (uint32_t*)&oled1.fb[1 + top_offset][SSD1306_DATA_OFFSET];
 
 	for(j = 0, s = 28; j < 8; j++, s -= 4)
 	{
-		int w, g;
+		uint32_t g;
 
-		// spacer
-		if(j && !(j & 1))
-		for(w = 0; w < 5; w++, i++)
+		/* out char */
+		g = 13;
+		if(j == 0 && top_offset)
 		{
-			uint32_t W = console_font_14x30_transposed[11 /* glyphs */][w + semicolon_offset /* width */];
-
-			oled1.fb[0][SSD1306_DATA_OFFSET + i] = W >>  0;
-			oled1.fb[1][SSD1306_DATA_OFFSET + i] = W >>  8;
-			oled1.fb[2][SSD1306_DATA_OFFSET + i] = W >> 16;
-			oled1.fb[3][SSD1306_DATA_OFFSET + i] = W >> 24;
+			*top =  console_font_12x16_transposed[0][g][0]; top++;
+			*top =  console_font_12x16_transposed[0][g][1]; top++;
+			*bottom =  console_font_12x16_transposed[1][g][0]; bottom++;
+			*bottom =  console_font_12x16_transposed[1][g][1]; bottom++;
 		}
 
 		// find glyph index
@@ -170,23 +177,61 @@ static void oled_idle()
 		if(g > 10) g = 10;
 
 		// copy glyph bitmap data
-		for(w = 0; w < 14; w++, i++)
-		{
-		    uint32_t W = console_font_14x30_transposed[g /* glyphs */][w /* width */];
+		*top =  console_font_12x16_transposed[0][g][0]; top++;
+		*top =  console_font_12x16_transposed[0][g][1]; top++;
+		*top =  console_font_12x16_transposed[0][g][2]; top++;
+		*bottom =  console_font_12x16_transposed[1][g][0]; bottom++;
+		*bottom =  console_font_12x16_transposed[1][g][1]; bottom++;
+		*bottom =  console_font_12x16_transposed[1][g][2]; bottom++;
 
-			oled1.fb[0][SSD1306_DATA_OFFSET + i] = W >>  0;
-			oled1.fb[1][SSD1306_DATA_OFFSET + i] = W >>  8;
-			oled1.fb[2][SSD1306_DATA_OFFSET + i] = W >> 16;
-			oled1.fb[3][SSD1306_DATA_OFFSET + i] = W >> 24;
+		/* semicolon */
+		g = 11;
+		if(j == 1 || j == 3 || j == 5)
+		{
+			*top =  console_font_12x16_transposed[0][g][0]; top++;
+			*top =  console_font_12x16_transposed[0][g][1]; top++;
+			*bottom =  console_font_12x16_transposed[1][g][0]; bottom++;
+			*bottom =  console_font_12x16_transposed[1][g][1]; bottom++;
+		}
+
+		/* out char */
+		g = 12;
+		if(j == 7 && !top_offset)
+		{
+			*top =  console_font_12x16_transposed[0][g][0]; top++;
+			*top =  console_font_12x16_transposed[0][g][1]; top++;
+			*bottom =  console_font_12x16_transposed[1][g][0]; bottom++;
+			*bottom =  console_font_12x16_transposed[1][g][1]; bottom++;
 		}
 	}
+}
 
-	// mark page dirty
-	oled1.dirty = 0x0f;
-#if 1
-	/* this is for estimating display rendering time */
-	HAL_GPIO_WritePin(TP2_GPIO_Port, TP2_Pin, GPIO_PIN_RESET);
-#endif
+static void oled_idle()
+{
+	uint32_t mask;
+
+	mask = 3;
+	if(ltc_bcd_curr != tc_out_displayed && !(oled1.dirty & mask) && !(oled1.busy & mask))
+	{
+		oled_redraw(tc_out_displayed = ltc_bcd_curr, 0);
+
+		// mark pages dirty
+		oled1.dirty |= mask;
+
+		return;
+	}
+
+
+	mask = 12;
+	if(tc_in_display != tc_in_displayed && !(oled1.dirty & mask) && !(oled1.busy & mask))
+	{
+		oled_redraw(tc_in_displayed = tc_in_display, 2);
+
+		// mark pages dirty
+		oled1.dirty |= mask;
+
+		return;
+	}
 }
 
 extern USBD_HandleTypeDef hUsbDevice;
@@ -283,7 +328,7 @@ int main(void)
   ltc_decoder_init(&htim2);
 
   // setup and init oled display
-  console_font_14x30_transpose();
+  console_font_12x16_transpose();
   SSD1306_setup(&oled1);
 
   /* USER CODE END 2 */
