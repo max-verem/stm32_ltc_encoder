@@ -5,12 +5,13 @@
 
 #define SSD1306_MAX_PAGES 	8
 #define SSD1306_DATA_OFFSET 5
+#define SSD1306_DATA_PADDING 11
 #define SSD1306_WIDTH		128
 
 typedef struct SSD1306_ctx_desc
 {
 	I2C_HandleTypeDef *hi2c;
-	uint8_t fb[SSD1306_MAX_PAGES][SSD1306_DATA_OFFSET + SSD1306_WIDTH + 4];
+	uint8_t fb[SSD1306_MAX_PAGES][SSD1306_DATA_OFFSET + SSD1306_WIDTH + SSD1306_DATA_PADDING];
 	uint8_t addr, column_shift, pages, current_page, height;
 	uint32_t busy, dirty;
 	int cb_error_cnt, cb_complete_cnt;
