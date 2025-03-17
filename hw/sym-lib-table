@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "stm32_ltc_encoder")(type "KiCad")(uri "${KIPRJMOD}/stm32_ltc_encoder.kicad_sym")(options "")(descr ""))
+)
