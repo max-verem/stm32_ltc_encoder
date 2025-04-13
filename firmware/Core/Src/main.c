@@ -78,12 +78,16 @@ static void timerA_cb(TIM_HandleTypeDef *htim)
 
 		TIMER_A_DIV(TIMER_A_DIV_BLINK_SLOW)
 			HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+
+		HAL_GPIO_WritePin(LTC_IN_OK_GPIO_Port, LTC_IN_OK_Pin, GPIO_PIN_SET);
 	}
 	else
 	{
 		/* blink fast it timecode detected */
 		TIMER_A_DIV(TIMER_A_DIV_BLINK_FAST)
 			HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+
+		HAL_GPIO_WritePin(LTC_IN_OK_GPIO_Port, LTC_IN_OK_Pin, GPIO_PIN_RESET);
 	};
 
 	SSD1306_refresh(&oled1);
@@ -345,6 +349,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
   }
+
   /* USER CODE END 3 */
 }
 
